@@ -21,5 +21,17 @@ ignore_missing_imports = true
 pythonpath = ["src"]
 testpaths = ["src/tests", "tests"]
 
+[tool.coverage.run]
+branch = true
+source = ["src"]
+omit = ["src/tests/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+
+[tool.coverage.html]
+directory = "htmlcov"
+
 [tool.fastapi]
 entrypoint = "src.main:app"
