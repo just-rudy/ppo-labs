@@ -109,3 +109,163 @@ public-метод SUT; приватные методы напрямую не т�
 По умолчанию pytest запускает один процесс на весь набор. Отдельные процессы
 на тест или класс не создаются. Параллельный запуск настраивается отдельно
 плагином `pytest-xdist` и параметром `pytest -n`; в этой работе он не включён.
+
+## Практическая памятка по запуску и чтению покрытия
+
+### Основные команды
+
+```bash
+make test-unit          # 10 unit-тестов
+make test-repositories  # реальные SQLAlchemy-репозитории, SQLite in-memory
+make test-unit-random   # тот же набор в случайном порядке
+make test-unit-offline  # pytest-socket: запрет сетевых сокетов
+make coverage           # покрытие строк и ветвлений + HTML в htmlcov/
+make coverage-open      # открыть htmlcov/index.html
+make allure-report      # свежий HTML-отчёт Allure
+make allure-open        # локальный просмотр отчёта Allure
+```
+
+### Прямой запуск pytest
+
+```bash
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py
+PYTHONPATH=src pytest src/tests/integration
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py --randomly-seed=$(date +%s)
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py --disable-socket -m offline
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py \
+  --cov=src --cov-config=pyproject.toml --cov-report=term --cov-report=html:htmlcov
+```
+
+### Маркеры pytest
+
+В проекте используются маркеры:
+
+- `unit` — изолированные unit-тесты;
+- `classic` — классическая школа, реальные объекты и финальное состояние;
+- `london` — лондонская школа, SUT + mocks;
+- `offline` — тесты, которые должны проходить без доступа к сети.
+
+Примеры:
+
+```bash
+PYTHONPATH=src pytest -m classic
+PYTHONPATH=src pytest -m london
+PYTHONPATH=src pytest -m offline
+```
+
+### Fixture, Data Builder и ObjectMother
+
+`fixture` в pytest — это функция, которая создаёт общий контекст для теста и обеспечивает его изоляцию.
+
+В `london_context` перед каждым тестом создаётся новый `GameLogic` и отдельные mock-объекты:
+
+- `game_repository`
+- `user_repository`
+- `card_logic`
+- `deck_service`
+- `state_manager`
+- `card_type_repository`
+
+Это гарантирует, что один тест не зависит от состояния другого.
+
+`CardBuilder` и `PlayerBuilder` — это Data Builder: тест задаёт только важные поля, а остальное берётся из дефолтных значений. `ObjectMother` — набор типовых корректных объектов: карты, пользователя, игры.
+
+### Coverage HTML: что и как
+
+Команда `make coverage` запускает pytest c plugin `pytest-cov`:
+
+```bash
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py \
+  --cov=src --cov-config=pyproject.toml --cov-report=term --cov-report=html:htmlcov
+```
+
+Поэтапно это работает так:
+
+1. pytest выполняет 10 unit-тестов;
+2. `coverage.py` следит, какие строки production-кода `src` реально были исполнены;
+3. считаются покрытие строк и ветвлений (`branch = true` в `pyproject.toml`);
+4. в терминале печатается сводка по lab-модулям и общий `TOTAL` по проекту;
+5. HTML-отчёт сохраняется в `htmlcov/index.html`.
+
+Открывать отчёт удобно командой:
+
+```bash
+make coverage-open
+```
+
+или вручную:
+
+```bash
+xdg-open htmlcov/index.html
+```
+
+### Как HTML-отчёт подсвечивает покрытие
+
+В `htmlcov` каждая страница по файлу показывает исходный код с цветовой разметкой:
+
+- зелёный: строка или ветка были выполнены тестом;
+- красный: строка вообще не достигалась во время запуска;
+- жёлтый: часть ветвей покрыта, часть нет, то есть код исполнялся не полностью.
+
+Это позволяет не просто узнать "файл покрыт/не покрыт", а увидеть именно какие строки нуждаются в дополнительном тестировании.
+
+Например, для `if`/`else` ветвлений:
+
+```python
+if player.health < 0:
+    raise ValueError("dead")
+```
+
+- если тесты всегда проходят только по одному из путей, то одна ветка будет зелёной, а другая останется незакрытой или частично покрытой;
+- это заметно сразу в HTML-отчёте и помогает формулировать новые сценарии для проверки граничных условий.
+
+На главной странице `htmlcov/index.html` виден общий процент покрытия по каждому файлу и по всему проекту. При переходе в конкретный файл можно сразу кликнуть по строкам и понять, что именно осталось непроверенным.
+
+### Coverage-метрики и смысл
+
+`make coverage` не просто показывает процент, а даёт практический инструмент диагностики:
+
+- какие модули уже достаточно покрыты;
+- где находятся "мертвые" ветви кода;
+- какие сценарии ещё следует реализовать в тестах.
+
+Это особенно важно для лабораторной работы, потому что итог не ограничивается фактом "тесты прошли" — важна ещё и глубина проверки поведения.
+
+### Allure
+
+Для более удобной визуализации результатов используется Allure:
+
+```bash
+make allure-report
+make allure-open
+```
+
+Логика такая:
+
+- очищаются старые результаты;
+- запускаются 10 unit-тестов;
+- данные сохраняются в `build/allure-results`;
+- далее генерируется HTML-отчёт в `build/allure-report`.
+
+### Важные замечания
+
+- pytest по умолчанию запускает один процесс на весь набор;
+- параллельный запуск `pytest-xdist` в данной работе не подключён;
+- `make test-unit-offline` использует `--disable-socket` и запрещает сетевые вызовы;
+- интеграционные тесты работают на SQLite in-memory, без PostgreSQL, Docker и интернет-зависимостей;
+- `make coverage` — отдельная команда, не включена в обычный прогон по умолчанию.
+
+### Короткая шпаргалка для защиты
+
+```bash
+make test-unit
+make test-repositories
+make coverage
+make allure-report
+```
+
+Если нужно быстро проверить только лабораторный набор:
+
+```bash
+PYTHONPATH=src pytest src/tests/domain/test_lab_patterns.py -q
+```
