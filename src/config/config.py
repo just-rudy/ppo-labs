@@ -12,16 +12,17 @@ class DatabaseConfig:
 
 
 @dataclass(frozen=True)
-class MongoConfig:
-    url: str
-    database: str = "cool_magic_battles"
-
-
-@dataclass(frozen=True)
 class GameConfig:
     default_hand_size: int = 5
     default_market_size: int = 5
     default_base_health: int = 20
+
+
+@dataclass(frozen=True)
+class RedisConfig:
+    url: str = "redis://localhost:6379/0"
+    enabled: bool = True
+    catalog_ttl_seconds: int = 300
 
 
 @dataclass(frozen=True)
@@ -48,8 +49,7 @@ class Config:
     game: GameConfig
     logging: LoggingConfig
     minio: MinioConfig
-    storage_backend: str = "postgres"  # "postgres" | "mongo"
-    mongo: MongoConfig | None = None
+    redis: RedisConfig
 
 
 def _load_env_file(env_path: Path = DEFAULT_ENV_PATH) -> None:
@@ -120,36 +120,16 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Config:
     database_config = file_config.get("database", {})
     game_config = file_config.get("game", {})
     logging_config = file_config.get("logging", {})
+    redis_config = file_config.get("redis", {})
     minio_config = file_config.get("minio", {})
-    mongo_config = file_config.get("mongo", {})
 
     database_url = os.getenv("DATABASE_URL", database_config.get("url"))
 
     if database_url is None:
         raise ValueError("database.url must be set in config.yaml or DATABASE_URL")
 
-    storage_backend = os.getenv(
-        "STORAGE_BACKEND",
-        file_config.get("storage", {}).get("backend", "postgres"),
-    )
-
-    mongo: MongoConfig | None = None
-    mongo_url = os.getenv("MONGO_URL", mongo_config.get("url"))
-    if mongo_url:
-        mongo = MongoConfig(
-            url=mongo_url,
-            database=os.getenv(
-                "MONGO_DATABASE",
-                mongo_config.get("database", MongoConfig.database),
-            ),
-        )
-
-    # print(f'db_url: {database_url}')
-    # prin
     return Config(
         database=DatabaseConfig(url=database_url),
-        storage_backend=storage_backend,
-        mongo=mongo,
         game=GameConfig(
             default_hand_size=int(
                 os.getenv(
@@ -176,6 +156,25 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> Config:
         ),
         logging=LoggingConfig(
             file=os.getenv("LOG_FILE", logging_config.get("file", LoggingConfig.file))
+        ),
+        redis=RedisConfig(
+            url=os.getenv(
+                "REDIS_URL",
+                redis_config.get("url", RedisConfig.url),
+            ),
+            enabled=_parse_bool(
+                os.getenv("REDIS_ENABLED", redis_config.get("enabled")),
+                RedisConfig.enabled,
+            ),
+            catalog_ttl_seconds=int(
+                os.getenv(
+                    "REDIS_CATALOG_TTL_SECONDS",
+                    redis_config.get(
+                        "catalog_ttl_seconds",
+                        str(RedisConfig.catalog_ttl_seconds),
+                    ),
+                )
+            ),
         ),
         minio=MinioConfig(
             endpoint=os.getenv(

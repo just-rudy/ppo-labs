@@ -3,8 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from api.dependencies import CurrentActor, get_current_actor, get_db_optional, require_permission
+from api.dependencies import (
+    CurrentActor,
+    get_current_actor,
+    get_db,
+    require_permission,
+)
 from application.controllers.user_controller import UserController
 from application.dto.responses import UserProfileResponse, UserResponse
 from application.services.access_control import Operation, Resource
@@ -30,11 +36,11 @@ class UpdateUserRoleRequest(BaseModel):
 
 
 def get_user_controller(
-    session: Annotated[object, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
 ) -> UserController:
     from api.dependencies import _make_repositories
 
-    _, user_repo, _, _ = _make_repositories(session)  # type: ignore[arg-type]
+    _, user_repo, _, _ = _make_repositories(session)
     return UserController(user_repo)
 
 

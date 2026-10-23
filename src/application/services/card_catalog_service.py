@@ -6,6 +6,21 @@ from application.services.card_factory import _build_image
 from domain.entities import Card
 from infrastructure.db.exceptions import EntityNotFoundError, EntityValidationError
 
+# Фрагменты сообщений PostgreSQL-триггера, которые нужно пробросить как 400
+_TRIGGER_EXCEPTION_MARKERS = (
+    "card cost must be between",
+    "card power must be positive",
+    "power for buff_",
+    "buff_* card must have",
+    "cool_points must be between",
+    "card must have a card type",
+)
+
+
+def _is_trigger_error(message: str) -> bool:
+    lower = message.lower()
+    return any(marker in lower for marker in _TRIGGER_EXCEPTION_MARKERS)
+
 
 class CardCatalogService:
     def __init__(
@@ -51,7 +66,15 @@ class CardCatalogService:
             cool_points=cool_points,
             image=image,
         )
-        self._cards.save(card)
+        try:
+            self._cards.save(card)
+        except EntityValidationError:
+            raise
+        except Exception as exc:
+            msg = str(exc)
+            if _is_trigger_error(msg):
+                raise EntityValidationError(msg) from exc
+            raise
         return self._load_card(card.id)
 
     def update_card(
@@ -90,7 +113,15 @@ class CardCatalogService:
         if card.image is not None:
             card.image.title = title
 
-        self._cards.save(card)
+        try:
+            self._cards.save(card)
+        except EntityValidationError:
+            raise
+        except Exception as exc:
+            msg = str(exc)
+            if _is_trigger_error(msg):
+                raise EntityValidationError(msg) from exc
+            raise
         return self._load_card(card_id)
 
     def _load_card(self, card_id: UUID) -> Card:

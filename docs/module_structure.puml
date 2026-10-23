@@ -1,0 +1,54 @@
+@startuml
+
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam roundcorner 10
+skinparam ArrowThickness 1.2
+
+title Структура разрабатываемого ПО
+
+rectangle "Модуль\nпользовательского\nвеб-интерфейса" as UI
+
+rectangle "Модуль API\nи обработки\nзапросов" as API
+
+rectangle "Модуль\nигровой логики" as GAME
+
+rectangle "Модуль\nуправления\nколодами" as DECK
+
+rectangle "Модуль\nобработки карт" as CARD
+
+rectangle "Модуль\nуправления\nсостоянием игры" as STATE
+
+rectangle "Модуль доступа\nк данным" as DBMODULE
+
+rectangle "Модуль хранения\nизображений" as IMG
+
+database "База данных" as DB
+
+cloud "MinIO" as MINIO
+
+UI --> API : Игровые действия\nи запросы
+
+API --> GAME : Команды пользователя
+
+GAME --> DECK : Операции\nс колодами
+DECK --> GAME : Изменённые\nколоды
+
+GAME --> CARD : Параметры\nрозыгрыша
+CARD --> GAME : Результат\nприменения карты
+
+GAME --> STATE : Текущее\nсостояние партии
+STATE --> GAME : Обновлённое\nсостояние игры
+
+GAME --> DBMODULE : Сохранение\nи загрузка данных
+DBMODULE --> GAME : Игровые данные
+
+DBMODULE --> DB
+
+API --> IMG : Загрузка и получение\nизображений
+IMG --> MINIO : Файлы изображений
+MINIO --> IMG : URL изображений
+
+API ..> UI : Результат обработки\nи состояние игры
+
+@enduml

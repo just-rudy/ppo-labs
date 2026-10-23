@@ -62,9 +62,6 @@ class SqlAlchemyGameRepository(GameRepository):
         deck_model.player_id = player_id
         deck_model.if_open = deck.if_open
 
-        self._session.query(DeckCardModel).filter(
-            DeckCardModel.deck_id == deck.id
-        ).delete(synchronize_session=False)
         deck_model.deck_cards = []
         self._session.flush()
 
@@ -350,18 +347,12 @@ class SqlAlchemyGameRepository(GameRepository):
                 .filter(PlayerModel.game_id == model.id)
                 .all()
             )
-            game.players = [
-                PlayerMapper.to_domain(pm) for pm in player_models
-            ]
+            game.players = [PlayerMapper.to_domain(pm) for pm in player_models]
             games.append(game)
         return games
 
     def get_by_name(self, name: str) -> "Game | None":
-        model = (
-            self._session.query(GameModel)
-            .filter(GameModel.name == name)
-            .first()
-        )
+        model = self._session.query(GameModel).filter(GameModel.name == name).first()
         if model is None:
             return None
         return self.get(model.id)

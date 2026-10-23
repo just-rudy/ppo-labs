@@ -1,0 +1,90 @@
+@startuml Модульная архитектура
+
+!define MODULE_COLOR #E3F2FD
+!define FLOW_COLOR #90CAF9
+
+skinparam component {
+    BackgroundColor MODULE_COLOR
+    BorderColor #1976D2
+    ArrowColor FLOW_COLOR
+}
+
+skinparam note {
+    BackgroundColor #FFF9C4
+    BorderColor #F57F17
+}
+
+package "Модульная архитектура Cool Magic Battles" {
+    
+    [Модуль пользовательского\nвеб-интерфейса\n(user_interface)] as UI
+    note right of UI
+        - FastAPI роутеры
+        - Pydantic схемы
+        - Зависимости
+    end note
+    
+    [Модуль конфигурации\n(configuration)] as CONFIG
+    note right of CONFIG
+        - Загрузка config.yaml
+        - Валидация настроек
+        - Управление окружением
+    end note
+    
+    [Модуль игровой логики\n(game_logic)] as GAME
+    note right of GAME
+        - Управление игрой
+        - Логика ходов
+        - Состояние игры
+        - Сбор метрик
+    end note
+    
+    [Модуль колодостроения\n(deck_builder)] as DECK
+    note right of DECK
+        - Создание колод
+        - Расчёт весов карт
+        - Фабрика карт
+    end note
+    
+    [Модуль генерации\nконфигураций\n(config_generator)] as GEN
+    note right of GEN
+        - Генерация конфигов игры
+        - Генерация конфигов колод
+        - Создание решений
+    end note
+    
+    [Модуль формирования\nпакета и выдачи\n(output_formatter)] as OUTPUT
+    note right of OUTPUT
+        - Формирование ответов
+        - DTO для выдачи
+        - Сериализация
+    end note
+    
+    package "Общие компоненты" {
+        [Domain\n(сущности)] as DOMAIN
+        [Infrastructure\n(репозитории, БД)] as INFRA
+        [Shared\n(утилиты)] as SHARED
+    }
+    
+    ' Поток данных согласно диаграмме
+    UI --> CONFIG : "Сведения о сервисах\nи конфигурации"
+    CONFIG --> GAME : "Настройки"
+    GAME --> DECK : "Метрики"
+    DECK --> GEN : "Доли"
+    GEN --> OUTPUT : "Решение"
+    GAME --> OUTPUT : "Фрагменты"
+    OUTPUT --> UI : "Результат"
+    
+    ' Связи с общими компонентами
+    GAME ..> DOMAIN : использует
+    DECK ..> DOMAIN : использует
+    GEN ..> DOMAIN : использует
+    
+    GAME ..> INFRA : использует
+    DECK ..> INFRA : использует
+    UI ..> INFRA : использует
+    
+    CONFIG ..> SHARED : использует
+    OUTPUT ..> SHARED : использует
+}
+
+@enduml

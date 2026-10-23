@@ -33,20 +33,12 @@ class CurrentActor:
     user: User | None
     role: UserRole
 
-# ─── PostgreSQL ───────────────────────────────────────────────────────────────
 
-# Создаём PostgreSQL engine только если используется postgres backend
-if config.storage_backend == "postgres":
-    engine = create_engine(config.database.url, future=True)
-    SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
-else:
-    engine = None  # type: ignore[assignment]
-    SessionLocal = None  # type: ignore[assignment]
+engine = create_engine(config.database.url, future=True)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
 
 
 def get_db() -> Generator[Session, None, None]:
-    if SessionLocal is None:
-        raise RuntimeError("PostgreSQL is not configured. Set STORAGE_BACKEND=postgres")
     session = SessionLocal()
     try:
         yield session
@@ -54,62 +46,10 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
-# ─── MongoDB ──────────────────────────────────────────────────────────────────
-
-
-def _get_mongo_db():  # type: ignore[return]
-    """Возвращает MongoDB Database или None если не сконфигурирован."""
-    if config.mongo is None:
-        return None
-    from infrastructure.mongo.client import get_mongo_db
-
-    return get_mongo_db(config.mongo)
-
-
-# ─── Repository factories ─────────────────────────────────────────────────────
-
-
 def _make_repositories(
-    session: Session | None,
+    session: Session,
 ) -> tuple[GameRepository, UserRepository, CardRepository, CardTypeRepository]:
-    """
-    Создаёт репозитории в зависимости от storage_backend в конфиге.
-    - "postgres" — SQLAlchemy + PostgreSQL
-    - "mongo"    — PyMongo + MongoDB
-    """
-    backend = config.storage_backend
-
-    if backend == "mongo":
-        db = _get_mongo_db()
-        if db is None:
-            raise RuntimeError(
-                "storage_backend=mongo but mongo.url is not configured. "
-                "Set MONGO_URL in .env or mongo.url in config.yaml"
-            )
-        from infrastructure.mongo.repositories.mongo_card_repository import (
-            MongoCardRepository,
-        )
-        from infrastructure.mongo.repositories.mongo_card_type_repository import (
-            MongoCardTypeRepository,
-        )
-        from infrastructure.mongo.repositories.mongo_game_repository import (
-            MongoGameRepository,
-        )
-        from infrastructure.mongo.repositories.mongo_user_repository import (
-            MongoUserRepository,
-        )
-
-        return (
-            MongoGameRepository(db),
-            MongoUserRepository(db),
-            MongoCardRepository(db),
-            MongoCardTypeRepository(db),
-        )
-
-    # default: postgres
-    if session is None:
-        raise RuntimeError("PostgreSQL session is required for postgres backend")
-
+    """Создаёт SQLAlchemy-репозитории для текущей сессии."""
     from infrastructure.db.repositories.sqlalchemy_card_repository import (
         SqlAlchemyCardRepository,
     )
@@ -149,22 +89,8 @@ def get_redis_cache() -> RedisCache:
     )
 
 
-def get_db_optional() -> Generator[Session | None, None, None]:
-    """Возвращает PostgreSQL сессию только если backend=postgres."""
-    if config.storage_backend == "postgres":
-        if SessionLocal is None:
-            raise RuntimeError("PostgreSQL SessionLocal is not initialized")
-        session = SessionLocal()
-        try:
-            yield session
-        finally:
-            session.close()
-    else:
-        yield None
-
-
 def get_game_service(
-    session: Annotated[Session | None, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
 ) -> GameAppService:
     game_repo, user_repo, card_repo, card_type_repo = _make_repositories(session)
     return GameAppService(
@@ -176,11 +102,12 @@ def get_game_service(
         card_repository=card_repo,
         card_type_repository=card_type_repo,
         default_market_size=config.game.default_market_size,
+        db_session=session,
     )
 
 
 def get_card_image_service(
-    session: Annotated[Session | None, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
 ) -> CardImageService:
     _, _, card_repo, _ = _make_repositories(session)
     return CardImageService(
@@ -191,7 +118,7 @@ def get_card_image_service(
 
 
 def get_current_actor(
-    session: Annotated[Session | None, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
     x_user_id: Annotated[UUID | None, Header(alias="X-User-Id")] = None,
 ) -> CurrentActor:
     if x_user_id is None:

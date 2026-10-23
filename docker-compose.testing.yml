@@ -1,0 +1,67 @@
+x-test-environment: &test-environment
+  CMB_TESTING: '1'
+  DATABASE_URL: postgresql+psycopg://test_user:test_password@db:5432/cmb_test
+  MINIO_ENDPOINT: minio:9000
+  MINIO_ACCESS_KEY: testminio
+  MINIO_SECRET_KEY: testminio-password
+  MINIO_BUCKET: cards-test
+  MINIO_SECURE: 'false'
+  MINIO_AUTO_CREATE_BUCKET: 'true'
+  MINIO_DEFAULT_IMAGE_OBJECT: ''
+  REDIS_ENABLED: 'false'
+  API_BASE_URL: http://api:8000
+  PYTHONPATH: /app/src:/app
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: cmb_test
+    volumes:
+      - test-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U test_user -d cmb_test']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: testminio
+      MINIO_ROOT_PASSWORD: testminio-password
+    volumes:
+      - test-minio:/data
+  api:
+    image: ${CMB_TEST_IMAGE:-cmb-testing:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    environment: *test-environment
+    command: [uvicorn, 'api.app:app', --host, '0.0.0.0', --port, '8000']
+    ports:
+      - '127.0.0.1::8000'
+  tests:
+    image: ${CMB_TEST_IMAGE:-cmb-testing:local}
+    build:
+      context: .
+      dockerfile: Dockerfile.tests
+    environment: *test-environment
+    user: '${CMB_TEST_UID:-1000}:${CMB_TEST_GID:-1000}'
+    volumes:
+      - ${CMB_TEST_OUTPUT:-./build/testing/local}:/artifacts
+      - ${CMB_TEST_HISTORY:-./build/testing/history/local}:/history
+  capture:
+    image: ${CMB_TEST_IMAGE:-cmb-testing:local}
+    network_mode: service:api
+    cap_add: [NET_RAW, NET_ADMIN]
+    volumes:
+      - ${CMB_TEST_OUTPUT:-./build/testing/local}:/artifacts
+    entrypoint: [tcpdump, --immediate-mode, -i, any, -s, '0', -U, -w, /artifacts/demo.pcap, tcp, port, '8000']
+    stop_signal: SIGINT
+
+volumes:
+  test-db:
+  test-minio:

@@ -1,0 +1,20 @@
+FROM python:3.12-slim
+
+ARG ALLURE_VERSION=2.32.0
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    ca-certificates curl default-jre-headless tcpdump tshark \
+    && curl --fail --location --retry 3 \
+    "https://github.com/allure-framework/allure2/releases/download/${ALLURE_VERSION}/allure-${ALLURE_VERSION}.tgz" \
+    | tar -xz -C /opt \
+    && ln -s /opt/allure-${ALLURE_VERSION}/bin/allure /usr/local/bin/allure \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements.txt requirements-testing.txt ./
+RUN pip install --no-cache-dir -r requirements-testing.txt
+COPY src ./src
+COPY alembic ./alembic
+COPY alembic.ini pytest.ini pyproject.toml ./
+COPY scripts/testing ./scripts/testing
+COPY tests_lab2 ./tests_lab2
+ENV PYTHONPATH=/app/src:/app PYTHONUNBUFFERED=1
+CMD ["python", "-m", "pytest", "src/tests/domain", "src/tests/application", "src/tests/infrastructure"]

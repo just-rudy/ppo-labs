@@ -1,0 +1,43 @@
+МАНИФЕСТ архива курсовой работы (БД)
+
+Включено в архив:
+- alembic/ (миграции Alembic)
+- alembic.ini
+- scripts/db.py
+- scripts/demo_db_setup.sql
+- scripts/setup_postgres_native.sh
+- scripts/upload_card_images.sh
+- scripts/upload_default_image.py
+- src/ (серверный код, связанный с БД)
+- README.md
+- requirements.txt
+- pyproject.toml
+- env.example
+- report/ИУ7-64Б-Серышева-Дарья-КуР-БД-РПЗ.pdf
+- report/ИУ7-64Б-Серышева-Дарья-КуР-БД-През.pdf
+- MANIFEST.txt (этот файл)
+
+Исключено из архива:
+- директория `assets/`
+- любые другие текстовые файлы и `.md`, кроме `README.md` и этого `MANIFEST.txt`
+
+Краткие инструкции по восстановлению и запуску:
+1) Скопировать пример окружения и указать параметры БД:
+```bash
+cp env.example .env
+# заполнить параметры подключения к PostgreSQL в .env
+```
+2) Применить миграции:
+```bash
+python3 scripts/db.py upgrade
+```
+3) (Опционально) Засеять тестовые данные:
+```bash
+python3 scripts/db.py seed --cards 100
+```
+4) Запустить приложение (пример):
+```bash
+python3 src/main.py
+```
+
+Если нужно изменить состав архива или добавить файлы — скажите какие.

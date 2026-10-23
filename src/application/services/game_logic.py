@@ -50,18 +50,11 @@ class GameLogic:
         ]
 
     def _apply_damage(self, player: Player, damage: int, game: Game) -> None:
-        """Наносит урон игроку. При смерти выдаёт памятку из игрового пула.
-        
-        Возвращает True если игра должна завершиться (пул памяток исчерпан).
-        """
         if damage <= 0:
             return
         player.health -= damage
         if player.health <= 0:
             player.health = health_after_death()
-            if game.memos > 0:
-                game.memos -= 1
-                player.memos += 1
 
     def _resolve_heal_target(
         self,
@@ -83,8 +76,7 @@ class GameLogic:
 
         def ranking(player: Player) -> tuple[int, int, int, str, str]:
             cards = self._player_cards(player)
-            # Каждая памятка даёт -3 к очкам крутости
-            cool_points = sum(card.cool_points for card in cards) - 3 * player.memos
+            cool_points = sum(card.cool_points for card in cards)
             cards_count = len(cards)
             return (
                 cool_points,
@@ -113,9 +105,6 @@ class GameLogic:
 
         if not game.players:
             raise ValueError("No players in the game")
-
-        # Инициализируем пул памяток: количество игроков + 3
-        game.memos = len(game.players) + 3
 
         game.cur_turn = 0
         game.cur_player_id = game.players[0].id
@@ -300,15 +289,6 @@ class GameLogic:
 
         # Если атакующий завершает ход не дождавшись защиты — урон применяется
         self.resolve_pending_attack(game)
-
-        # Проверяем: не исчерпались ли памятки после урона
-        if game.memos == 0 and game.status == GameStatus.IN_PROGRESS:
-            winner = self._determine_winner(game)
-            game.status = GameStatus.FINISHED
-            game.cur_player_id = None
-            game.winner_id = winner.id
-            self._repo.save(game)
-            return
 
         player = self._get_player(game, player_id)
         player.cur_echo = player.base_echo

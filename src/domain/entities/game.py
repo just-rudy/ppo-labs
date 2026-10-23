@@ -24,7 +24,6 @@ class Game:
     cur_turn: int = 0
     cur_player_id: UUID | None = None
     winner_id: UUID | None = None
-    memos: int = 0  # пул памяток о бренности бытия в игре
     market_deck: Deck = field(default_factory=lambda: Deck(id=uuid4()))
     game_deck: Deck = field(default_factory=lambda: Deck(id=uuid4()))
     banish_deck: Deck = field(default_factory=lambda: Deck(id=uuid4()))

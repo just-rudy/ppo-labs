@@ -842,14 +842,16 @@ def test_defend_raises_error_when_card_cannot_defend(
 
 def test_apply_damage_respawns_at_default_health_when_killed(
     game_logic: tuple[GameLogic, Mock, Mock, Mock, Mock, Mock],
+    make_game: Callable[..., Game],
     make_player: Callable[..., Player],
 ) -> None:
     from domain.player_health import DEFAULT_PLAYER_HEALTH
 
     logic, *_ = game_logic
     player = make_player(health=5)
+    game = make_game(host_user_id=uuid4(), players=[player])
 
-    logic._apply_damage(player, 10)
+    logic._apply_damage(player, 10, game)
 
     assert player.health == DEFAULT_PLAYER_HEALTH
 

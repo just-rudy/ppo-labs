@@ -16,7 +16,6 @@ class Player:
     base_echo: int = 0
     cur_echo: int = 0
     hand_size: int = 5
-    memos: int = 0  # количество памяток о бренности бытия у игрока
     # decks will be moved later, here for simplicity
     # Player.draw_deck в БД соответствует записи Decks,
     # где owner_player_id = Player.id и type = 'draw'

@@ -1,0 +1,64 @@
+@startuml
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam activityBorderColor black
+skinparam activityBackgroundColor white
+skinparam diamondBackgroundColor white
+skinparam diamondBorderColor black
+
+start
+
+:Добавление или изменение
+записи в таблице cards;
+
+if (cost > 0\nи cost <= 7?) then (да)
+else (нет)
+    :Ошибка;
+    :Отмена операции;
+    stop
+endif
+
+if (power > 0?) then (да)
+else (нет)
+    :Ошибка;
+    :Отмена операции;
+    stop
+endif
+
+if (Тип карты = buff_*?) then (да)
+
+    if (power <= 2?) then (да)
+    else (нет)
+        :Ошибка;
+        :Отмена операции;
+        stop
+    endif
+
+    if (creature не пустое?) then (да)
+    else (нет)
+        :Ошибка;
+        :Отмена операции;
+        stop
+    endif
+
+endif
+
+if (cool_points >= -1\nи cool_points <= 5?) then (да)
+else (нет)
+    :Ошибка;
+    :Отмена операции;
+    stop
+endif
+
+if (card_type_id != NULL?) then (да)
+else (нет)
+    :Ошибка;
+    :Отмена операции;
+    stop
+endif
+
+:Сохранение записи;
+
+stop
+@enduml

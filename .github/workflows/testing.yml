@@ -1,0 +1,107 @@
+name: Testing lab 2
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      fail_stage:
+        description: 'Intentional recovery demonstration (empty for a normal run)'
+        type: choice
+        options: ['', unit, integration, e2e]
+        default: ''
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: lab2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      report_ready: ${{ steps.pages.outputs.ready }}
+    env:
+      CMB_RUN: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Select branch history
+        id: history
+        shell: bash
+        run: |
+          key=$(printf '%s' "$GITHUB_REF" | sha256sum | cut -c1-16)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          mkdir -p "build/testing/history/$key"
+      - name: Restore previous report history
+        continue-on-error: true
+        env:
+          HISTORY_KEY: ${{ steps.history.outputs.key }}
+        shell: bash
+        run: |
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" > /tmp/artifacts.json
+          artifact_id=$(python3 -c 'import json,os; a=[x for page in json.load(open("/tmp/artifacts.json")) for x in page["artifacts"]]; print(next((str(x["id"]) for x in a if x["name"] == "lab2-history-"+os.environ["HISTORY_KEY"] and not x["expired"]), ""))')
+          if [ -n "$artifact_id" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > /tmp/history.zip
+            unzip -q /tmp/history.zip -d "build/testing/history/$HISTORY_KEY"
+          fi
+      - name: Run unit → integration → e2e in Docker, curl replay and capture
+        env:
+          FAIL_STAGE: ${{ inputs.fail_stage }}
+          HISTORY_KEY: ${{ steps.history.outputs.key }}
+        shell: bash
+        run: |
+          args=()
+          if [ -n "$FAIL_STAGE" ]; then args+=(--fail-stage "$FAIL_STAGE"); fi
+          python3 scripts/testing/run.py --run-id "$CMB_RUN" --history-key "$HISTORY_KEY" --replay --repeat-integration "${args[@]}"
+      - name: Upload reports, baseline verification, logs and packet capture
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab2-${{ env.CMB_RUN }}
+          path: build/testing/${{ env.CMB_RUN }}/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve history for the next run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab2-history-${{ steps.history.outputs.key }}
+          path: build/testing/history/${{ steps.history.outputs.key }}/
+          retention-days: 30
+      - name: Prepare public test report
+        id: pages
+        if: always() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        shell: bash
+        run: |
+          if [ -f "build/testing/$CMB_RUN/index.html" ]; then
+            python3 scripts/testing/pages.py "build/testing/$CMB_RUN" build/pages
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload GitHub Pages site
+        if: always() && steps.pages.outputs.ready == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  pages:
+    needs: tests
+    if: always() && needs.tests.outputs.report_ready == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy test report (including failed test runs)
+        id: deployment
+        uses: actions/deploy-pages@v4

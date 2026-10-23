@@ -1,0 +1,63 @@
+@startuml components-diagram
+!theme plain
+skinparam backgroundColor #FEFEFE
+skinparam componentStyle rectangle
+skinparam shadowing false
+
+title UML-диаграмма архитектуры компонентов Cool Magic Battles
+
+package "Уровень представления" {
+    component [Обработчик\nHTTP запросов] as HTTPHandler
+    component [Пользовательский\nинтерфейс] as UI
+}
+
+package "Уровень приложения" {
+    component [Сервис\nавторизации] as AuthService
+    component [Сервис\nигр] as GameService
+    component [Сервис\nколод] as DeckService
+    component [Сервис\nкарт] as CardService
+    component [Сервис\nигроков] as PlayerService
+}
+
+package "Уровень доступа к данным" {
+    component [Репозиторий\nпользователей] as UserRepo
+    component [Репозиторий\nигр] as GameRepo
+    component [Репозиторий\nколод] as DeckRepo
+    component [Репозиторий\nкарт] as CardRepo
+    component [Репозиторий\nигроков] as PlayerRepo
+}
+
+package "Уровень хранения данных" {
+    database "База данных\nPostgreSQL" as PostgreSQL
+    component [Хранилище\nобъектов\nMinio] as Minio
+    component [Кеш\nсессий] as SessionCache
+}
+
+HTTPHandler --> UI
+
+HTTPHandler --> AuthService
+HTTPHandler --> GameService
+HTTPHandler --> DeckService
+HTTPHandler --> CardService
+HTTPHandler --> PlayerService
+
+AuthService --> UserRepo
+GameService --> GameRepo
+GameService --> PlayerRepo
+DeckService --> DeckRepo
+DeckService --> CardRepo
+CardService --> CardRepo
+PlayerService --> PlayerRepo
+
+UserRepo --> PostgreSQL
+GameRepo --> PostgreSQL
+DeckRepo --> PostgreSQL
+CardRepo --> PostgreSQL
+PlayerRepo --> PostgreSQL
+
+CardService --> Minio
+CardRepo --> Minio
+
+AuthService --> SessionCache
+
+@enduml

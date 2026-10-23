@@ -19,10 +19,16 @@ class DeckCardModel(Base):
         Uuid(as_uuid=True), primary_key=True, default=uuid4
     )
     deck_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("decks.id"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("decks.id"),
+        nullable=False,
+        index=True,
     )
     card_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("cards.id"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("cards.id"),
+        nullable=False,
+        index=True,
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     deck: Mapped["DeckModel"] = relationship(

@@ -1,8 +1,3 @@
-import os
-
-# API-тесты всегда на SQLAlchemy/SQLite; не подхватывать STORAGE_BACKEND=mongo из .env.
-os.environ["STORAGE_BACKEND"] = "postgres"
-
 from collections.abc import Generator
 from unittest.mock import MagicMock
 
@@ -38,10 +33,10 @@ def stub_image_storage(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture()
 def api_client(session: Session) -> Generator[TestClient, None, None]:
-    def override_get_db_optional() -> Generator[Session, None, None]:
+    def override_get_db() -> Generator[Session, None, None]:
         yield session
 
-    app.dependency_overrides[deps.get_db_optional] = override_get_db_optional
+    app.dependency_overrides[deps.get_db] = override_get_db
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

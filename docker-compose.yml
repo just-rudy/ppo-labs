@@ -10,8 +10,6 @@ services:
   #   depends_on:
   #     db:
   #       condition: service_healthy
-  #     mongo:
-  #       condition: service_healthy
   #   volumes:
   #     - .:/app
 
@@ -34,21 +32,6 @@ services:
       timeout: 5s
       retries: 10
 
-  mongo:
-    image: mongo:7
-    container_name: cmb-mongo
-    restart: unless-stopped
-    environment:
-      MONGO_INITDB_DATABASE: cool_magic_battles
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongodata:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
 
   redis:
     image: redis:7-alpine
@@ -78,5 +61,4 @@ services:
 
 volumes:
   pgdata:
-  mongodata:
   minio-data:

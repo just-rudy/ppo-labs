@@ -9,7 +9,6 @@ from application.controllers.user_controller import UserController
 from infrastructure.logging.logger import get_logger
 from infrastructure.ui.console.handlers import ConsoleHandler
 
-# from infrastructure.shared.validators import if_uuid_str
 from infrastructure.ui.console.menu import print_menu
 from infrastructure.ui.console.parser import parse_instruction
 from infrastructure.ui.console.prompts import read_instruction

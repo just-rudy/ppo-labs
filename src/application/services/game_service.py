@@ -1,5 +1,6 @@
 import random
 import re
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from application.dto.requests import CreateGameRequest
@@ -13,6 +14,9 @@ from application.services.game_logic import GameLogic
 from application.services.game_state_manager import GameStateManager
 from domain.entities import Card, Game
 
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
 
 class GameAppService:
     def __init__(
@@ -25,10 +29,12 @@ class GameAppService:
         card_repository: CardRepository,
         default_market_size: int = 5,
         card_type_repository: CardTypeRepository | None = None,
+        db_session: "Session | None" = None,
     ) -> None:
         self._game_repository = game_repository
         self._card_repository = card_repository
         self._default_market_size = default_market_size
+        self._db_session = db_session
         self._logic = GameLogic(
             game_repository=game_repository,
             user_repository=user_repository,
@@ -164,7 +170,49 @@ class GameAppService:
         return self._game_repository.get(game_id)
 
     def buy_card(self, game_id: UUID, player_id: UUID, card_id: UUID) -> Game:
-        self._logic.buy_card(game_id, player_id, card_id)
+        """Покупка карты с рынка.
+
+        В PostgreSQL использует хранимую процедуру purchase_card(),
+        которая атомарно проверяет баланс эхо и списывает стоимость карты.
+        В тестах без сессии выполняет проверки и обновление через доменную логику.
+        """
+        game = self._game_repository.get(game_id)
+        player = self._logic._get_player(game, player_id)
+
+        if game.status.value != "in_progress":
+            from domain.enums import GameStatus
+            if game.status != GameStatus.IN_PROGRESS:
+                raise ValueError("Game not in progress")
+
+        if not self._logic._state.validate_turn(game, player_id):
+            raise ValueError("Another player's turn")
+
+        card = self._logic._get_card(game.market_deck, card_id)
+
+        if not self._logic._card_logic.can_purchase(player, card):
+            raise ValueError("Card can't be purchased")
+
+        if self._db_session is not None:
+            # Используем хранимую процедуру — атомарное списание в БД
+            from sqlalchemy import text
+            try:
+                self._db_session.execute(
+                    text("SELECT purchase_card(:player_id, :card_id)"),
+                    {"player_id": str(player_id), "card_id": str(card_id)},
+                )
+                self._db_session.flush()
+            except Exception as exc:
+                self._db_session.rollback()
+                raise ValueError(str(exc)) from exc
+            # Синхронизируем доменную модель с тем, что сделала процедура
+            player.cur_echo -= card.cost
+        else:
+            # В тестах без сессии обновляем доменную модель напрямую
+            player.cur_echo -= card.cost
+
+        player.discard_deck.cards.append(card)
+        game.market_deck.cards.remove(card)
+        self._game_repository.save(game)
         return self._game_repository.get(game_id)
 
     def end_turn(self, game_id: UUID, player_id: UUID) -> Game:

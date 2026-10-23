@@ -1,4 +1,12 @@
-.PHONY: help db-up db-down db-wait db-migrate db-seed db-reset db-reseed db-truncate db-truncate-all mongo-up mongo-down mongo-seed redis-up redis-down minio-up minio-down minio-logs infra-up infra-down upload-default-image upload-card-images upload-card-images-offline install run-api run-frontend run-all test-storage-switch demo-mongo demo-teacher run-with-mongo test test-unit test-repositories test-unit-random test-unit-offline coverage coverage-open allure-results allure-report allure-open
+.PHONY: help db-up db-down db-wait db-migrate db-seed db-reset db-reseed db-truncate db-truncate-all redis-up redis-down minio-up minio-down minio-logs infra-up infra-down upload-default-image upload-card-images install run-api run-frontend run-all test test-unit test-repositories test-unit-random test-unit-offline coverage coverage-open allure-results allure-report allure-open
+
+.PHONY: test-lab2 test-lab2-demo
+.PHONY: test-trigger test-procedure test-roles test-minio db-check db-fix-card-images db-stamp
+test-lab2:
+	python3 scripts/testing/run.py $(LAB2_ARGS)
+
+test-lab2-demo:
+	python3 scripts/testing/run.py --replay $(LAB2_ARGS)
 
 # docker compose (v2 plugin) или docker-compose (v1)
 ifeq ($(shell docker compose version >/dev/null 2>&1 && echo yes),yes)
@@ -22,29 +30,24 @@ help:
 	@echo "  make db-reseed    - truncate all tables + seed (faster than reset)"
 	@echo "  make db-truncate   - truncate table: make db-truncate TABLE=cards [CASCADE=1]"
 	@echo "  make db-truncate-all - truncate all tables in current DB"
-	@echo "  make mongo-up      - start MongoDB on :27017"
-	@echo "  make mongo-down    - stop MongoDB"
-	@echo "  make mongo-seed    - seed users and cards into MongoDB"
 	@echo "  make redis-up      - start Redis on :6379 (кэш каталога карт)"
 	@echo "  make redis-down    - stop Redis"
 	@echo "  make minio-up      - start MinIO on :9000 and console on :9001"
 	@echo "  make minio-down    - stop MinIO"
 	@echo "  make minio-logs    - tail MinIO logs"
-	@echo "  make infra-up      - start PostgreSQL + Redis + MinIO + Mongo"
+	@echo "  make infra-up      - start PostgreSQL + Redis + MinIO"
 	@echo "  make infra-down    - stop all Docker infrastructure"
 	@echo "  make upload-card-images DIR=assets/cards - upload images to cards by file name"
 	@echo "  make run-api       - FastAPI on :8000"
 	@echo "  make run-frontend  - Vite dev server on :5173"
 	@echo "  make run-all       - run both API and frontend in parallel"
-	@echo "  make test-storage-switch - test PostgreSQL and MongoDB switching"
-	@echo "  make demo-mongo    - demo MongoDB functionality"
-	@echo "  make demo-teacher  - full demo for teacher"
-	@echo "  make demo-postgres - demo PostgreSQL: таблицы, триггер, процедура"
-	@echo "  make demo-redis    - demo Redis: кэш каталога, hit/miss, инвалидация"
-	@echo "  make demo-minio    - demo MinIO: бакет, загрузка, presigned URL"
-	@echo "  make demo-all      - запустить все три демо последовательно"
-	@echo "  make run-with-mongo - run API with MongoDB only (no PostgreSQL)"
+	@echo "  make test-trigger  - manually inspect card validation in local PostgreSQL"
+	@echo "  make test-procedure - manually inspect purchase_card in local PostgreSQL"
+	@echo "  make test-roles    - manually inspect PostgreSQL role permissions"
+	@echo "  make test-minio    - diagnose image upload through API and MinIO"
 	@echo "  make test          - run all pytest tests"
+	@echo "  make test-lab2     - isolated Docker unit -> PostgreSQL integration -> HTTP e2e"
+	@echo "  make test-lab2-demo - lab2 plus curl replay and PCAP capture"
 	@echo "  make test-unit     - run isolated unit tests"
 	@echo "  make test-repositories - test real SQLAlchemy repositories with in-memory SQLite"
 	@echo "  make test-unit-random - run unit tests in random order"
@@ -110,17 +113,8 @@ redis-down:
 minio-up:
 	$(call DOCKER_RUN,up -d minio)
 
-mongo-up:
-	$(call DOCKER_RUN,up -d mongo)
-
-mongo-down:
-	$(call DOCKER_RUN,stop mongo)
-
-mongo-seed:
-	STORAGE_BACKEND=mongo PYTHONPATH=src .venv/bin/python scripts/mongo_seed.py
-
 infra-up:
-	$(call DOCKER_RUN,up -d db redis minio mongo)
+	$(call DOCKER_RUN,up -d db redis minio)
 
 db-down:
 	$(call DOCKER_RUN,down)
@@ -175,7 +169,6 @@ db-reseed:
 db-fix-card-images:
 	PYTHONPATH=src python3 scripts/db.py fix-card-images
 
-
 db-truncate:
 	@test -n "$(TABLE)" || (echo "Usage: make db-truncate TABLE=<table> [CASCADE=1]" && exit 1)
 	PYTHONPATH=src python3 scripts/db.py truncate "$(TABLE)" $(if $(CASCADE),--cascade)
@@ -201,21 +194,6 @@ run-all:
 	@trap 'kill 0' EXIT; \
 		PYTHONPATH=src uvicorn api.app:app --reload --host 0.0.0.0 --port 8000 & \
 		cd frontend && npm run dev
-
-run-with-mongo:
-	@echo "Running with MongoDB only (no PostgreSQL)..."
-	bash run_with_mongo.sh
-
-demo-postgres:
-	bash scripts/demo_postgres.sh
-
-demo-redis:
-	bash scripts/demo_redis.sh
-
-demo-minio:
-	bash scripts/demo_minio.sh
-
-demo-all: demo-postgres demo-redis demo-minio
 
 test-trigger:
 	bash scripts/test_trigger.sh

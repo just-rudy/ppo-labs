@@ -2,10 +2,11 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from api.dependencies import (
     get_card_image_service,
-    get_db_optional,
+    get_db,
     get_redis_cache,
     require_permission,
 )
@@ -39,20 +40,20 @@ router = APIRouter()
 
 
 def get_card_repository(
-    session: Annotated[object, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
 ) -> CardRepository:
     from api.dependencies import _make_repositories
 
-    _, _, card_repo, _ = _make_repositories(session)  # type: ignore[arg-type]
+    _, _, card_repo, _ = _make_repositories(session)
     return card_repo
 
 
 def get_card_type_repository(
-    session: Annotated[object, Depends(get_db_optional)],
+    session: Annotated[Session, Depends(get_db)],
 ) -> CardTypeRepository:
     from api.dependencies import _make_repositories
 
-    _, _, _, card_type_repo = _make_repositories(session)  # type: ignore[arg-type]
+    _, _, _, card_type_repo = _make_repositories(session)
     return card_type_repo
 
 

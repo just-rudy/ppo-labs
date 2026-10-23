@@ -1,0 +1,26 @@
+.*
+*.bkp
+tmp.py
+__pycache__
+*.py[cod]
+!.dockerignore
+!.gitignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
+/build/
+
+# Generated local output
+*.log
+.coverage*
+htmlcov/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+frontend/dist/
+*.aux
+*.toc
+*.out
+*.fls
+*.fdb_latexmk
+*.synctex.gz

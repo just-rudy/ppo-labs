@@ -20,10 +20,16 @@ class PlayerModel(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     game_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("games.id", ondelete="CASCADE"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("games.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     user_id: Mapped[UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
     )
     nickname: Mapped[str] = mapped_column(String(50), nullable=False)
     turn_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
