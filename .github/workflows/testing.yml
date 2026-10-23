@@ -144,6 +144,7 @@ jobs:
         shell: bash
         run: |
           if [ -f "build/testing/$CMB_RUN/index.html" ]; then
+            python3 -m pip install -r requirements-pages.txt
             python3 scripts/testing/pages.py "build/testing/$CMB_RUN" build/pages
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
