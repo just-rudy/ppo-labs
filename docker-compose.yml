@@ -46,7 +46,10 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: ${CMB_MINIO_IMAGE:-cmb-minio:2025-09-07}
+    build:
+      context: .
+      dockerfile: Dockerfile.minio
     container_name: cmb-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"

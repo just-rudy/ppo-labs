@@ -52,6 +52,7 @@ class Pipeline:
             CMB_TEST_OUTPUT=str(self.output),
             CMB_TEST_HISTORY=str(self.history),
             CMB_TEST_IMAGE=f"cmb-testing:{self.run_id}",
+            CMB_MINIO_IMAGE=f"cmb-minio:{self.run_id}",
             CMB_TEST_UID=str(os.getuid()),
             CMB_TEST_GID=str(os.getgid()),
         )
@@ -109,12 +110,23 @@ class Pipeline:
                     timeout=timeout,
                 )
             except subprocess.TimeoutExpired:
+                log.flush()
+                self.print_log_tail(name)
                 if check:
                     raise RuntimeError(f"{name} timed out; see {log.name}") from None
                 return 124
-        if result.returncode and check:
-            raise RuntimeError(f"{name} exited {result.returncode}; see {log.name}")
+        if result.returncode:
+            self.print_log_tail(name)
+            if check:
+                raise RuntimeError(f"{name} exited {result.returncode}; see {log.name}")
         return result.returncode
+
+    def print_log_tail(self, name):
+        """Expose diagnostics in Actions as well as the downloadable artifact."""
+        path = self.output / f"{name}.log"
+        lines = path.read_text(errors="replace").splitlines()
+        print(f"--- Last 80 lines of {name}.log ---", flush=True)
+        print("\n".join(lines[-80:]), flush=True)
 
     def runner(self, command, *, name, env=None, check=True, timeout=300):
         options = ["run", "--rm", "--no-deps", "-T", "--name", f"{self.project}-{name}"]
@@ -194,7 +206,7 @@ class Pipeline:
 
     def execute(self):
         failed = None
-        self.command(["build", "tests"], name="build", timeout=1200)
+        self.command(["build", "tests", "minio"], name="build", timeout=1200)
         self.built = True
         self.command(["up", "-d", "db", "minio"], name="storage-up", timeout=180)
         self.runner(

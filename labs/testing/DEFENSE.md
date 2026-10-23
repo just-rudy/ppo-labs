@@ -146,6 +146,7 @@ ID нельзя использовать повторно: каталог рез
 |---|---|---|
 | `Makefile` | Короткие команды `test-lab2*` | Вызывает `scripts/testing/run.py` |
 | `scripts/testing/run.py` | Порядок этапов, уникальные ресурсы, обработка ошибок, cleanup | Compose, pytest, storage, scenario, capture, report |
+| `Dockerfile.minio` | Сборка MinIO из официального GitHub release с проверкой SHA-256, без `minio/minio` в Docker Hub | Обычный и тестовый Compose |
 | `Dockerfile.tests` | Образ с Python, зависимостями, Allure, curl, tcpdump, TShark | Используется сервисами `tests`, `api`, `capture` |
 | `docker-compose.testing.yml` | Сервисы, сеть, отдельные volumes и тестовые настройки | Управляется runner с уникальным `-p cmbtest-<run-id>` |
 | `scripts/testing/wait.py` | Ожидание готовности PostgreSQL, MinIO и API | Вызывается перед операциями с сервисами |
@@ -465,6 +466,7 @@ Pull request и другие ветки не обновляют сайт. Адр
 |---|---|
 | `permission denied` или `Operation not permitted` при Docker | `docker version` должен видеть Server; проблема до выполнения тестов |
 | Нет Compose | Проверить `docker compose version` и `docker-compose version` |
+| `pull access denied for minio/minio` | Используется старая версия Compose; обновить код с `Dockerfile.minio`, затем запустить новый прогон |
 | Не собирается образ | `build.log`, доступность реестров, установки зависимостей и Allure |
 | ID уже существует | Не повторять `--run-id`; оставить генерацию автоматически |
 | API не готов | `wait-api-*.log`, `api-*.log`, `services.log` |
