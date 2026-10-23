@@ -161,6 +161,7 @@ ID нельзя использовать повторно: каталог рез
 | `scripts/testing/report.py` | Allure и сохранение истории | `allure-results`, `allure-report`, `/history/current` |
 | `scripts/testing/pages.py` | Сборка каталога для GitHub Pages | Копирует сводку, Allure и coverage |
 | `tests_lab2/runner/` | Проверки самой инфраструктуры тестирования | Полнота PCAP и устойчивость cleanup |
+| `scripts/testing/merge.py` | Объединение результатов отдельных CI jobs и учёт skipped | Артефакты этапов → общий Allure и сводка |
 | `.github/workflows/testing.yml` | CI и публикация Pages | Вызывает тот же runner, сохраняет артефакты и историю |
 | `src/application/services/` | Тестируемая бизнес-логика | Репозитории и доменные сущности |
 | `src/infrastructure/db/repositories/` | Реальные SQLAlchemy-репозитории | Модели и PostgreSQL |
@@ -427,21 +428,34 @@ Workflow `.github/workflows/testing.yml` запускается на push, pull 
 и вручную через **Actions → Testing lab 2 → Run workflow**. Для обычного запуска
 оставьте `fail_stage` пустым. Для демонстрации ошибки выберите этап в этом поле.
 
-В workflow два jobs:
+На общей схеме Actions видны отдельные jobs:
+
+```text
+Unit → Integration → E2E → Reports → Publish reports · GitHub Pages
+```
 
 | Job | Что делает |
 |---|---|
-| `tests` | Checkout, восстановление истории, полный Docker-прогон с повтором integration и PCAP, загрузка артефактов |
-| `pages` | Публикация подготовленной сводки, Allure и coverage |
+| `unit` | Собственный Docker-стенд, unit-тесты без сети, покрытие, cleanup |
+| `integration` | После успешного Unit: PostgreSQL-тесты и повтор на той же БД, cleanup |
+| `e2e` | После успешного Integration: HTTP E2E, curl и PCAP, cleanup |
+| `reports` | Всегда: скачивает результаты завершённых jobs, добавляет skipped для пропущенных этапов, строит общую сводку и Allure |
+| `pages` | Публикует готовый отчёт, включая отчёт неуспешного прогона |
 
-Внутри job `tests` видны отдельные шаги Prepare, Unit, Integration, E2E, Curl
-replay и Restore baseline and generate reports. Они вызывают runner с разными
-`--phase`, но сохраняют один Compose project через `pipeline-state.json`.
-После ошибки следующие тестовые шаги пропускаются; финализация с `if: always()`
-записывает skipped в отчёты и восстанавливает baseline.
-Падение этапа делает тестовый job красным; сохранение отчётов выполняется
-с `if: always()`. При готовой сводке публикация Pages тоже допускается после
-падения тестов. Само наличие сайта не означает, что тесты зелёные.
+GitHub-hosted jobs работают на разных машинах. Поэтому между ними передаются
+артефакты, а не работающие контейнеры или volumes. Каждый тестовый job создаёт
+и проверяет свой baseline, затем восстанавливает данные и удаляет собственный
+стенд. Признаки восстановления каждого выполненного job собраны в `job_cleanup`
+итоговой сводки. Повтор integration выполняется внутри одного job на одной БД.
+
+Управление тестовым job: `run.py --only-stage unit|integration|e2e`.
+Объединение отчётности: `scripts/testing/merge.py`. В `jobs/<stage>/` полного
+артефакта сохраняются отдельные сводки и все логи каждого стенда.
+
+Зависимости `needs` не дают Integration и E2E выполняться после ошибки
+предыдущего этапа. Job Reports использует `if: always()`, чтобы сохранить общий
+отчёт и отметить пропущенные проверки. Скачивание артефактов и публикация
+отчётов не подменяют проверку успешности тестов.
 
 Pages публикуется из лабораторной ветки `regular` и из основной ветки, включая
 ручной запуск на них. Pull request и остальные ветки не обновляют сайт. Адрес смотрите у environment
@@ -450,7 +464,8 @@ Pages публикуется из лабораторной ветки `regular` 
 
 На странице завершённого workflow в разделе **Artifacts** находятся:
 
-- `lab2-ci-<run_id>-<attempt>` — все результаты, включая PCAP и логи.
+- `lab2-stage-unit`, `lab2-stage-integration`, `lab2-stage-e2e` — результаты выполненных тестовых jobs.
+- `lab2-ci-<run_id>-<attempt>` — объединённые результаты, включая PCAP и логи.
 - `lab2-history-<key>` — история отчётности для следующего запуска этой ветки.
 
 Артефакты настроены на хранение 30 дней. История привязана к Git ref и

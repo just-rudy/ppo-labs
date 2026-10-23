@@ -236,8 +236,8 @@ class Pipeline:
         self.baseline = True
         self.storage("verify", "initial-verify")
 
-    def run_stage(self, stage):
-        previous = list(STAGES)[: list(STAGES).index(stage)]
+    def run_stage(self, stage, *, standalone=False):
+        previous = [] if standalone else list(STAGES)[: list(STAGES).index(stage)]
         if self.summary["errors"] or any(
             self.summary["stages"].get(name, {}).get("status") != "passed"
             for name in previous
@@ -268,10 +268,10 @@ class Pipeline:
             "returncode": code,
         }
 
-    def replay(self):
+    def replay(self, *, standalone=False):
         if self.summary["errors"] or any(
             self.summary["stages"].get(stage, {}).get("status") != "passed"
-            for stage in STAGES
+            for stage in (["e2e"] if standalone else STAGES)
         ):
             raise RuntimeError("Cannot replay an unsuccessful pipeline")
         self.command(["stop", "api"], name="before-replay-stop")
@@ -301,6 +301,15 @@ class Pipeline:
 
     def execute(self):
         self.prepare()
+        if self.args.only_stage:
+            self.run_stage(self.args.only_stage, standalone=True)
+            if (
+                self.args.only_stage == "e2e"
+                and self.args.replay
+                and self.summary["stages"]["e2e"]["status"] == "passed"
+            ):
+                self.replay(standalone=True)
+            return
         failed = None
         for stage in STAGES:
             if failed:
@@ -347,7 +356,12 @@ class Pipeline:
                 self.summary["cleanup"] = "failed"
                 self.summary["errors"].append(str(exc))
         if self.built:
-            for stage in STAGES:
+            scope = (
+                [self.args.only_stage]
+                if getattr(self.args, "only_stage", None)
+                else STAGES
+            )
+            for stage in scope:
                 if not (self.output / f"{stage}.xml").exists():
                     try:
                         code = self.pytest(
@@ -460,6 +474,7 @@ def interrupted(signum, frame):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", default=os.environ.get("CMB_RUN_ID"))
+    parser.add_argument("--only-stage", choices=STAGES)
     parser.add_argument(
         "--phase",
         default="all",
@@ -519,7 +534,10 @@ def main():
     return int(
         bool(pipeline.summary["errors"])
         or pipeline.summary["cleanup"] != "verified"
-        or any(x["status"] != "passed" for x in pipeline.summary["stages"].values())
+        or any(
+            pipeline.summary["stages"][stage]["status"] != "passed"
+            for stage in ([args.only_stage] if args.only_stage else STAGES)
+        )
     )
 
 

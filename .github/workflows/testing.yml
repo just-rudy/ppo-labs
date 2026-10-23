@@ -19,23 +19,87 @@ concurrency:
   group: lab2-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  CMB_FAIL_STAGE: ${{ inputs.fail_stage }}
+
 jobs:
-  tests:
-    name: Tests · Unit → Integration → E2E
+  unit:
+    name: Unit
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
     timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Unit in an isolated Docker environment
+        run: python3 scripts/testing/run.py --run-id ci-${{ github.run_id }}-${{ github.run_attempt }}-unit --only-stage unit
+      - name: Save Unit results and restoration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab2-stage-unit
+          path: build/testing/ci-${{ github.run_id }}-${{ github.run_attempt }}-unit/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30
+
+  integration:
+    name: Integration
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Integration in an isolated Docker environment
+        run: python3 scripts/testing/run.py --run-id ci-${{ github.run_id }}-${{ github.run_attempt }}-integration --only-stage integration --repeat-integration
+      - name: Save Integration results and restoration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab2-stage-integration
+          path: build/testing/ci-${{ github.run_id }}-${{ github.run_attempt }}-integration/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30
+
+  e2e:
+    name: E2E
+    needs: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run E2E in an isolated Docker environment
+        run: python3 scripts/testing/run.py --run-id ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e --only-stage e2e --replay
+      - name: Save E2E results and restoration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lab2-stage-e2e
+          path: build/testing/ci-${{ github.run_id }}-${{ github.run_attempt }}-e2e/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 30
+
+  reports:
+    name: Reports
+    needs: [unit, integration, e2e]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
     outputs:
       report_ready: ${{ steps.pages.outputs.ready }}
     env:
       CMB_RUN: ci-${{ github.run_id }}-${{ github.run_attempt }}
-      GH_TOKEN: ${{ github.token }}
       CMB_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}
-      CMB_FAIL_STAGE: ${{ inputs.fail_stage }}
+      GH_TOKEN: ${{ github.token }}
+      CMB_JOB_RESULTS: '{"unit":"${{ needs.unit.result }}","integration":"${{ needs.integration.result }}","e2e":"${{ needs.e2e.result }}"}'
     steps:
       - uses: actions/checkout@v6
+      - name: Download completed test stages
+        continue-on-error: true
+        uses: actions/download-artifact@v5
+        with:
+          pattern: lab2-stage-*
+          path: build/stages
       - name: Select branch history
         id: history
         shell: bash
@@ -56,19 +120,8 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > /tmp/history.zip
             unzip -q /tmp/history.zip -d "build/testing/history/$HISTORY_KEY"
           fi
-      - name: Prepare isolated PostgreSQL and MinIO environment
-        run: python3 scripts/testing/run.py --phase prepare
-      - name: Unit tests · offline and coverage
-        run: python3 scripts/testing/run.py --phase unit
-      - name: Integration tests · PostgreSQL and repeatability
-        run: python3 scripts/testing/run.py --phase integration
-      - name: E2E tests · full HTTP game scenario
-        run: python3 scripts/testing/run.py --phase e2e
-      - name: Curl replay · capture and verify Wireshark PCAP
-        run: python3 scripts/testing/run.py --phase replay
-      - name: Restore baseline and generate reports
-        if: always()
-        run: python3 scripts/testing/run.py --phase finalize
+      - name: Merge results, record skipped tests and generate Allure
+        run: python3 -m scripts.testing.merge
       - name: Upload reports, baseline verification, logs and packet capture
         if: always()
         uses: actions/upload-artifact@v4
@@ -82,6 +135,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lab2-history-${{ steps.history.outputs.key }}
+          overwrite: true
           path: build/testing/history/${{ steps.history.outputs.key }}/
           retention-days: 30
       - name: Prepare public test report
@@ -101,8 +155,8 @@ jobs:
 
   pages:
     name: Publish reports · GitHub Pages
-    needs: tests
-    if: always() && needs.tests.outputs.report_ready == 'true'
+    needs: reports
+    if: always() && needs.reports.outputs.report_ready == 'true'
     runs-on: ubuntu-latest
     permissions:
       pages: write
