@@ -21,13 +21,19 @@ concurrency:
 
 jobs:
   tests:
+    name: Tests · Unit → Integration → E2E
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 35
     outputs:
       report_ready: ${{ steps.pages.outputs.ready }}
     env:
       CMB_RUN: ci-${{ github.run_id }}-${{ github.run_attempt }}
       GH_TOKEN: ${{ github.token }}
+      CMB_RUN_ID: ci-${{ github.run_id }}-${{ github.run_attempt }}
+      CMB_FAIL_STAGE: ${{ inputs.fail_stage }}
     steps:
       - uses: actions/checkout@v6
       - name: Select branch history
@@ -36,6 +42,7 @@ jobs:
         run: |
           key=$(printf '%s' "$GITHUB_REF" | sha256sum | cut -c1-16)
           echo "key=$key" >> "$GITHUB_OUTPUT"
+          echo "CMB_HISTORY_KEY=$key" >> "$GITHUB_ENV"
           mkdir -p "build/testing/history/$key"
       - name: Restore previous report history
         continue-on-error: true
@@ -49,15 +56,19 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact_id/zip" > /tmp/history.zip
             unzip -q /tmp/history.zip -d "build/testing/history/$HISTORY_KEY"
           fi
-      - name: Run unit → integration → e2e in Docker, curl replay and capture
-        env:
-          FAIL_STAGE: ${{ inputs.fail_stage }}
-          HISTORY_KEY: ${{ steps.history.outputs.key }}
-        shell: bash
-        run: |
-          args=()
-          if [ -n "$FAIL_STAGE" ]; then args+=(--fail-stage "$FAIL_STAGE"); fi
-          python3 scripts/testing/run.py --run-id "$CMB_RUN" --history-key "$HISTORY_KEY" --replay --repeat-integration "${args[@]}"
+      - name: Prepare isolated PostgreSQL and MinIO environment
+        run: python3 scripts/testing/run.py --phase prepare
+      - name: Unit tests · offline and coverage
+        run: python3 scripts/testing/run.py --phase unit
+      - name: Integration tests · PostgreSQL and repeatability
+        run: python3 scripts/testing/run.py --phase integration
+      - name: E2E tests · full HTTP game scenario
+        run: python3 scripts/testing/run.py --phase e2e
+      - name: Curl replay · capture and verify Wireshark PCAP
+        run: python3 scripts/testing/run.py --phase replay
+      - name: Restore baseline and generate reports
+        if: always()
+        run: python3 scripts/testing/run.py --phase finalize
       - name: Upload reports, baseline verification, logs and packet capture
         if: always()
         uses: actions/upload-artifact@v4
@@ -75,7 +86,7 @@ jobs:
           retention-days: 30
       - name: Prepare public test report
         id: pages
-        if: always() && github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        if: always() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/regular' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
         shell: bash
         run: |
           if [ -f "build/testing/$CMB_RUN/index.html" ]; then
@@ -89,6 +100,7 @@ jobs:
           path: build/pages
 
   pages:
+    name: Publish reports · GitHub Pages
     needs: tests
     if: always() && needs.tests.outputs.report_ready == 'true'
     runs-on: ubuntu-latest

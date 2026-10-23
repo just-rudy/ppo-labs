@@ -41,7 +41,7 @@ class Pipeline:
             )
         self.project = "cmbtest-" + self.run_id
         self.output = ROOT / "build/testing" / self.run_id
-        self.output.mkdir(parents=True, exist_ok=False)
+        self.output.mkdir(parents=True, exist_ok=args.phase not in ("all", "prepare"))
         key = args.history_key
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", key):
             raise ValueError("Invalid history key")
@@ -91,6 +91,24 @@ class Pipeline:
         }
         self.built = False
         self.baseline = False
+        if args.phase not in ("all", "prepare"):
+            state = json.loads((self.output / "pipeline-state.json").read_text())
+            if state["history_key"] != args.history_key:
+                raise ValueError("Cannot change history key between phases")
+            self.summary = state["summary"]
+            self.built = state["built"]
+            self.baseline = state["baseline"]
+
+    def save_state(self):
+        state = {
+            "summary": self.summary,
+            "built": self.built,
+            "baseline": self.baseline,
+            "history_key": self.args.history_key,
+        }
+        temporary = self.output / "pipeline-state.tmp"
+        temporary.write_text(json.dumps(state, indent=2))
+        temporary.replace(self.output / "pipeline-state.json")
 
     def commit(self):
         return subprocess.check_output(
@@ -204,8 +222,7 @@ class Pipeline:
         ).strip()
         (self.output / "api-url.txt").write_text("http://" + port + "\n")
 
-    def execute(self):
-        failed = None
+    def prepare(self):
         self.command(["build", "tests", "minio"], name="build", timeout=1200)
         self.built = True
         self.command(["up", "-d", "db", "minio"], name="storage-up", timeout=180)
@@ -218,6 +235,73 @@ class Pipeline:
         self.storage("snapshot", "initial-snapshot")
         self.baseline = True
         self.storage("verify", "initial-verify")
+
+    def run_stage(self, stage):
+        previous = list(STAGES)[: list(STAGES).index(stage)]
+        if self.summary["errors"] or any(
+            self.summary["stages"].get(name, {}).get("status") != "passed"
+            for name in previous
+        ):
+            raise RuntimeError(
+                f"Cannot run {stage}: preparation or previous stage failed"
+            )
+        if stage != "unit":
+            self.storage("reset", f"before-{stage}-reset")
+            self.storage("verify", f"before-{stage}-verify")
+        if stage == "e2e":
+            self.start_api("e2e")
+        code = self.pytest(stage)
+        if stage == "integration" and not code and self.args.repeat_integration:
+            # Reuse the same PostgreSQL container and volume for both runs.
+            (self.output / "integration.xml").replace(
+                self.output / "integration-first.xml"
+            )
+            (self.output / "integration.log").replace(
+                self.output / "integration-first.log"
+            )
+            self.storage("reset", "repeat-integration-reset")
+            self.storage("verify", "repeat-integration-verify")
+            code = self.pytest(stage)
+            self.summary["integration_repeated_on_same_instance"] = True
+        self.summary["stages"][stage] = {
+            "status": "failed" if code else "passed",
+            "returncode": code,
+        }
+
+    def replay(self):
+        if self.summary["errors"] or any(
+            self.summary["stages"].get(stage, {}).get("status") != "passed"
+            for stage in STAGES
+        ):
+            raise RuntimeError("Cannot replay an unsuccessful pipeline")
+        self.command(["stop", "api"], name="before-replay-stop")
+        self.storage("reset", "before-replay-reset")
+        self.start_api("replay")
+        self.command(["up", "-d", "--no-deps", "capture"], name="capture-start")
+        try:
+            deadline = time.monotonic() + 15
+            pcap = self.output / "demo.pcap"
+            while not pcap.exists() or pcap.stat().st_size < 24:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("tcpdump did not initialize the capture")
+                time.sleep(0.1)
+            self.runner(
+                ["python", "-m", "scripts.testing.scenario", "--curl"],
+                name="curl-replay",
+            )
+            # Allow capture to consume the last response before SIGINT.
+            time.sleep(2)
+        finally:
+            self.command(["stop", "capture"], name="capture-stop", check=False)
+        pcap = self.output / "demo.pcap"
+        if not pcap.exists() or pcap.stat().st_size <= 24:
+            raise RuntimeError("Packet capture is empty")
+        self.runner(["python", "-m", "scripts.testing.capture"], name="capture-verify")
+        self.summary["capture"] = "verified"
+
+    def execute(self):
+        self.prepare()
+        failed = None
         for stage in STAGES:
             if failed:
                 code = self.pytest(stage, f"Previous stage {failed} failed")
@@ -227,58 +311,12 @@ class Pipeline:
                 }
                 if code:
                     self.summary["errors"].append(f"Could not record skipped {stage}")
-                continue
-            if stage != "unit":
-                self.storage("reset", f"before-{stage}-reset")
-                self.storage("verify", f"before-{stage}-verify")
-            if stage == "e2e":
-                self.start_api("e2e")
-            code = self.pytest(stage)
-            if stage == "integration" and not code and self.args.repeat_integration:
-                # Reuse the same PostgreSQL container and volume for both runs.
-                (self.output / "integration.xml").replace(
-                    self.output / "integration-first.xml"
-                )
-                (self.output / "integration.log").replace(
-                    self.output / "integration-first.log"
-                )
-                self.storage("reset", "repeat-integration-reset")
-                self.storage("verify", "repeat-integration-verify")
-                code = self.pytest(stage)
-                self.summary["integration_repeated_on_same_instance"] = True
-            self.summary["stages"][stage] = {
-                "status": "failed" if code else "passed",
-                "returncode": code,
-            }
-            if code:
-                failed = stage
+            else:
+                self.run_stage(stage)
+                if self.summary["stages"][stage]["status"] == "failed":
+                    failed = stage
         if self.args.replay and not failed:
-            self.command(["stop", "api"], name="before-replay-stop")
-            self.storage("reset", "before-replay-reset")
-            self.start_api("replay")
-            self.command(["up", "-d", "--no-deps", "capture"], name="capture-start")
-            try:
-                deadline = time.monotonic() + 15
-                pcap = self.output / "demo.pcap"
-                while not pcap.exists() or pcap.stat().st_size < 24:
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("tcpdump did not initialize the capture")
-                    time.sleep(0.1)
-                self.runner(
-                    ["python", "-m", "scripts.testing.scenario", "--curl"],
-                    name="curl-replay",
-                )
-                # Allow capture to consume the last response before SIGINT.
-                time.sleep(2)
-            finally:
-                self.command(["stop", "capture"], name="capture-stop", check=False)
-            pcap = self.output / "demo.pcap"
-            if not pcap.exists() or pcap.stat().st_size <= 24:
-                raise RuntimeError("Packet capture is empty")
-            self.runner(
-                ["python", "-m", "scripts.testing.capture"], name="capture-verify"
-            )
-            self.summary["capture"] = "verified"
+            self.replay()
 
     def cleanup_command(self, args, *, name, timeout):
         try:
@@ -421,12 +459,23 @@ def interrupted(signum, frame):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run-id")
-    parser.add_argument("--history-key", default="local")
-    parser.add_argument("--fail-stage", choices=STAGES)
+    parser.add_argument("--run-id", default=os.environ.get("CMB_RUN_ID"))
+    parser.add_argument(
+        "--phase",
+        default="all",
+        choices=["all", "prepare", *STAGES, "replay", "finalize"],
+        help="Execute one CI step against the same persisted Compose project",
+    )
+    parser.add_argument(
+        "--history-key", default=os.environ.get("CMB_HISTORY_KEY", "local")
+    )
+    parser.add_argument(
+        "--fail-stage", choices=STAGES, default=os.environ.get("CMB_FAIL_STAGE") or None
+    )
     parser.add_argument(
         "--repeat-integration",
         action="store_true",
+        default=os.environ.get("GITHUB_ACTIONS") == "true",
         help="Run integration twice against the same storage instance",
     )
     parser.add_argument(
@@ -438,15 +487,33 @@ def main():
         help="Keep stopped containers with verified restored baseline",
     )
     args = parser.parse_args()
+    if args.phase != "all" and not args.run_id:
+        parser.error("--phase requires an explicit --run-id")
     pipeline = Pipeline(args)
     signal.signal(signal.SIGINT, interrupted)
     signal.signal(signal.SIGTERM, interrupted)
     try:
-        pipeline.execute()
+        if args.phase == "all":
+            pipeline.execute()
+        elif args.phase in STAGES:
+            pipeline.run_stage(args.phase)
+        elif args.phase != "finalize":
+            getattr(pipeline, args.phase)()
     except (Exception, KeyboardInterrupt) as exc:
         pipeline.summary["errors"].append(str(exc))
     finally:
-        pipeline.finalize()
+        if args.phase in ("all", "finalize"):
+            pipeline.finalize()
+        else:
+            pipeline.save_state()
+    if args.phase not in ("all", "finalize"):
+        return int(
+            bool(pipeline.summary["errors"])
+            or any(
+                stage["status"] == "failed"
+                for stage in pipeline.summary["stages"].values()
+            )
+        )
     print(json.dumps(pipeline.summary, indent=2))
     print(f"Report: {pipeline.output / 'index.html'}")
     return int(
